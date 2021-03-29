@@ -3,14 +3,14 @@ http://creativecommons.org/publicdomain/zero/1.0/ */
 
 use crate::Opts;
 use anyhow::Result;
-use fxa_client::{self, auth, Config as FxaConfig, FirefoxAccount};
-use logins::PasswordEngine;
+use fxa_client::internal::{auth, config::Config as FxaConfig, FirefoxAccount};
+use logins::PasswordStore;
 use serde_json::json;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use sync15::{KeyBundle, Sync15StorageClientInit};
-use tabs::TabsEngine;
+use tabs::TabsStore;
 use url::Url;
 use viaduct::Request;
 
@@ -19,27 +19,6 @@ pub const SYNC_SCOPE: &str = "https://identity.mozilla.com/apps/oldsync";
 
 // TODO: This is wrong for dev?
 pub const REDIRECT_URI: &str = "https://stable.dev.lcip.org/oauth/success/3c49430b43dfba77";
-
-lazy_static::lazy_static! {
-    // Figures out where `sync-test/helper` lives. This is pretty gross, but once
-    // https://github.com/rust-lang/cargo/issues/2841 is resolved it should be simpler.
-    // That said, it's possible we should probably just rewrite that script in rust instead :p.
-    static ref HELPER_SCRIPT_DIR: std::path::PathBuf = {
-        let mut path = std::env::current_exe().expect("Failed to get current exe path...");
-        // Find `target` which should contain this program.
-        while path.file_name().expect("Failed to find target!") != "target" {
-            path.pop();
-        }
-        // And go up once more, to the root of the workspace.
-        path.pop();
-        // TODO: it would be nice not to hardcode these given that we're
-        // planning on moving stuff around, but such is life.
-        path.push("testing");
-        path.push("sync-test");
-        path.push("helper");
-        path
-    };
-}
 
 // It's important that this doesn't implement Clone! (It destroys it's temporary fxaccount on drop)
 #[derive(Debug)]
@@ -241,11 +220,11 @@ impl Drop for TestAccount {
 }
 
 pub struct TestClient {
-    pub fxa: fxa_client::FirefoxAccount,
+    pub fxa: fxa_client::internal::FirefoxAccount,
     pub test_acct: Arc<TestAccount>,
     // XXX do this more generically...
-    pub logins_engine: PasswordEngine,
-    pub tabs_engine: TabsEngine,
+    pub logins_store: PasswordStore,
+    pub tabs_store: TabsStore,
 }
 
 impl TestClient {
@@ -278,13 +257,17 @@ impl TestClient {
         fxa.complete_oauth_flow(&code, &state)?;
         log::info!("OAuth flow finished");
 
-        fxa.initialize_device("Testing Device", fxa_client::device::Type::Desktop, &[])?;
+        fxa.initialize_device(
+            "Testing Device",
+            fxa_client::internal::device::Type::Desktop,
+            &[],
+        )?;
 
         Ok(Self {
             fxa,
             test_acct: acct,
-            logins_engine: PasswordEngine::new_in_memory(None)?,
-            tabs_engine: TabsEngine::new(),
+            logins_store: PasswordStore::new_in_memory(None)?,
+            tabs_store: TabsStore::new(),
         })
     }
 
@@ -324,8 +307,8 @@ impl TestClient {
 
     pub fn fully_reset_local_db(&mut self) -> Result<()> {
         // Not great...
-        self.logins_engine = PasswordEngine::new_in_memory(None)?;
-        self.tabs_engine = TabsEngine::new();
+        self.logins_store = PasswordStore::new_in_memory(None)?;
+        self.tabs_store = TabsStore::new();
         Ok(())
     }
 }

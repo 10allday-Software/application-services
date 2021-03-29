@@ -13,7 +13,7 @@ use sync_guid::Guid as SyncGuid;
 
 use crate::error::*;
 
-use super::Record;
+use super::{Record, RecordData};
 
 fn outgoing_from_row(row: &Row<'_>) -> Result<Payload> {
     let guid: SyncGuid = row.get("guid")?;
@@ -21,9 +21,11 @@ fn outgoing_from_row(row: &Row<'_>) -> Result<Payload> {
     let raw_data: Option<String> = row.get("data")?;
     let payload = match raw_data {
         Some(raw_data) => Payload::from_record(Record {
-            ext_id,
             guid,
-            data: Some(raw_data),
+            data: RecordData::Data {
+                ext_id,
+                data: raw_data,
+            },
         })?,
         None => Payload::new_tombstone(guid),
     };
@@ -60,8 +62,9 @@ pub fn stage_outgoing(tx: &Transaction<'_>) -> Result<()> {
         INSERT OR REPLACE INTO storage_sync_data (ext_id, data, sync_change_counter)
         SELECT ext_id, data, 0
         FROM storage_sync_staging s
-        WHERE NOT EXISTS(SELECT 1 FROM storage_sync_outgoing_staging o
-                         WHERE o.guid = s.guid);";
+        WHERE ext_id IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM storage_sync_outgoing_staging o
+                       WHERE o.guid = s.guid);";
     tx.execute_batch(sql)?;
     Ok(())
 }
@@ -73,7 +76,7 @@ pub fn get_outgoing(conn: &Connection, signal: &dyn Interruptee) -> Result<Vec<P
         .conn()
         .query_rows_and_then_named(sql, &[], |row| -> Result<_> {
             signal.err_if_interrupted()?;
-            Ok(outgoing_from_row(row)?)
+            outgoing_from_row(row)
         })?;
 
     log::debug!("get_outgoing found {} items", elts.len());

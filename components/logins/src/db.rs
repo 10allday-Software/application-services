@@ -22,8 +22,8 @@ use std::path::Path;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant, SystemTime};
 use sync15::{
-    extract_v1_state, telemetry, CollSyncIds, CollectionRequest, IncomingChangeset,
-    OutgoingChangeset, Payload, ServerTimestamp, Store, StoreSyncAssociation,
+    extract_v1_state, telemetry, CollSyncIds, CollectionRequest, EngineSyncAssociation,
+    IncomingChangeset, OutgoingChangeset, Payload, ServerTimestamp, SyncEngine,
 };
 use sync_guid::Guid;
 use url::{Host, Url};
@@ -95,11 +95,7 @@ impl LoginDb {
     }
 
     pub fn open(path: impl AsRef<Path>, encryption_key: Option<&str>) -> Result<Self> {
-        Ok(Self::with_connection(
-            Connection::open(path)?,
-            encryption_key,
-            None,
-        )?)
+        Self::with_connection(Connection::open(path)?, encryption_key, None)
     }
 
     pub fn open_with_salt(
@@ -108,19 +104,11 @@ impl LoginDb {
         salt: &str,
     ) -> Result<Self> {
         ensure_valid_salt(salt)?;
-        Ok(Self::with_connection(
-            Connection::open(path)?,
-            Some(encryption_key),
-            Some(salt),
-        )?)
+        Self::with_connection(Connection::open(path)?, Some(encryption_key), Some(salt))
     }
 
     pub fn open_in_memory(encryption_key: Option<&str>) -> Result<Self> {
-        Ok(Self::with_connection(
-            Connection::open_in_memory()?,
-            encryption_key,
-            None,
-        )?)
+        Self::with_connection(Connection::open_in_memory()?, encryption_key, None)
     }
 
     /// Opens an existing database and fetches the salt.
@@ -188,14 +176,13 @@ impl LoginDb {
 
 // Checks if the provided string is a 32 len hex string.
 fn ensure_valid_salt(salt: &str) -> Result<()> {
-    if salt.len() == 32
-        && salt.as_bytes().iter().all(|c| match c {
-            b'A'..=b'F' => true,
-            b'a'..=b'f' => true,
-            b'0'..=b'9' => true,
-            _ => false,
-        })
-    {
+    let is_valid_hex_character = |c: &u8| {
+        matches!(c,
+                b'A'..=b'F' |
+                b'a'..=b'f' |
+                b'0'..=b'9')
+    };
+    if salt.len() == 32 && salt.as_bytes().iter().all(is_valid_hex_character) {
         return Ok(());
     }
     Err(ErrorKind::InvalidSalt.into())
@@ -404,7 +391,7 @@ impl LoginDb {
         } else {
             query += " AND formSubmitURL IS :form_submit"
         }
-        Ok(self.try_query_row(&query, args, |row| Login::from_row(row), false)?)
+        self.try_query_row(&query, args, |row| Login::from_row(row), false)
     }
 
     pub fn get_all(&self) -> Result<Vec<Login>> {
@@ -983,8 +970,8 @@ impl LoginDb {
             .execute_named_cached(&*CLONE_SINGLE_MIRROR_SQL, &[(":guid", &guid as &dyn ToSql)])?)
     }
 
-    pub fn reset(&self, assoc: &StoreSyncAssociation) -> Result<()> {
-        log::info!("Executing reset on password store!");
+    pub fn reset(&self, assoc: &EngineSyncAssociation) -> Result<()> {
+        log::info!("Executing reset on password engine!");
         let tx = self.db.unchecked_transaction()?;
         self.execute_all(&[
             &*CLONE_ENTIRE_MIRROR_SQL,
@@ -993,11 +980,11 @@ impl LoginDb {
         ])?;
         self.set_last_sync(ServerTimestamp(0))?;
         match assoc {
-            StoreSyncAssociation::Disconnected => {
+            EngineSyncAssociation::Disconnected => {
                 self.delete_meta(schema::GLOBAL_SYNCID_META_KEY)?;
                 self.delete_meta(schema::COLLECTION_SYNCID_META_KEY)?;
             }
-            StoreSyncAssociation::Connected(ids) => {
+            EngineSyncAssociation::Connected(ids) => {
                 self.put_meta(schema::GLOBAL_SYNCID_META_KEY, &ids.global)?;
                 self.put_meta(schema::COLLECTION_SYNCID_META_KEY, &ids.coll)?;
             }
@@ -1009,7 +996,7 @@ impl LoginDb {
 
     pub fn wipe(&self, scope: &SqlInterruptScope) -> Result<()> {
         let tx = self.unchecked_transaction()?;
-        log::info!("Executing wipe on password store!");
+        log::info!("Executing wipe on password engine!");
         let now_ms = util::system_time_ms_i64(SystemTime::now());
         scope.err_if_interrupted()?;
         self.execute_named(
@@ -1046,7 +1033,7 @@ impl LoginDb {
     }
 
     pub fn wipe_local(&self) -> Result<()> {
-        log::info!("Executing wipe_local on password store!");
+        log::info!("Executing wipe_local on password engine!");
         let tx = self.unchecked_transaction()?;
         self.execute_all(&[
             "DELETE FROM loginsL",
@@ -1165,7 +1152,7 @@ impl LoginDb {
             result
         }?;
         self.execute_plan(plan, scope)?;
-        Ok(self.fetch_outgoing(inbound.timestamp, scope)?)
+        self.fetch_outgoing(inbound.timestamp, scope)
     }
 
     fn put_meta(&self, key: &str, value: &dyn ToSql) -> Result<()> {
@@ -1177,12 +1164,12 @@ impl LoginDb {
     }
 
     fn get_meta<T: FromSql>(&self, key: &str) -> Result<Option<T>> {
-        Ok(self.try_query_row(
+        self.try_query_row(
             "SELECT value FROM loginsSyncMeta WHERE key = :key",
             named_params! { ":key": key },
             |row| Ok::<_, Error>(row.get(0)?),
             true,
-        )?)
+        )
     }
 
     fn delete_meta(&self, key: &str) -> Result<()> {
@@ -1252,7 +1239,7 @@ impl<'a> LoginStore<'a> {
     }
 }
 
-impl<'a> Store for LoginStore<'a> {
+impl<'a> SyncEngine for LoginStore<'a> {
     fn collection_name(&self) -> std::borrow::Cow<'static, str> {
         "passwords".into()
     }
@@ -1292,17 +1279,17 @@ impl<'a> Store for LoginStore<'a> {
         })
     }
 
-    fn get_sync_assoc(&self) -> anyhow::Result<StoreSyncAssociation> {
+    fn get_sync_assoc(&self) -> anyhow::Result<EngineSyncAssociation> {
         let global = self.db.get_meta(schema::GLOBAL_SYNCID_META_KEY)?;
         let coll = self.db.get_meta(schema::COLLECTION_SYNCID_META_KEY)?;
         Ok(if let (Some(global), Some(coll)) = (global, coll) {
-            StoreSyncAssociation::Connected(CollSyncIds { global, coll })
+            EngineSyncAssociation::Connected(CollSyncIds { global, coll })
         } else {
-            StoreSyncAssociation::Disconnected
+            EngineSyncAssociation::Disconnected
         })
     }
 
-    fn reset(&self, assoc: &StoreSyncAssociation) -> anyhow::Result<()> {
+    fn reset(&self, assoc: &EngineSyncAssociation) -> anyhow::Result<()> {
         self.db.reset(assoc)?;
         Ok(())
     }
@@ -1540,9 +1527,9 @@ mod tests {
             .into_iter()
             .map(|l| l.hostname)
             .collect::<Vec<String>>();
-        results.sort();
+        results.sort_unstable();
         let mut sorted = expected.to_owned();
-        sorted.sort();
+        sorted.sort_unstable();
         assert_eq!(sorted, results);
     }
 

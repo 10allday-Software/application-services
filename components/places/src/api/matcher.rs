@@ -230,7 +230,7 @@ impl SearchResult {
         let bookmark_title = row.get::<_, Option<String>>("btitle")?;
         let frecency = row.get::<_, i64>("frecency")?;
 
-        let title = bookmark_title.or_else(|| history_title).unwrap_or_default();
+        let title = bookmark_title.or(history_title).unwrap_or_default();
 
         let tags = row.get::<_, Option<String>>("tags")?;
         if let Some(tags) = tags {
@@ -259,7 +259,7 @@ impl SearchResult {
 
         let history_title = row.get::<_, Option<String>>("title")?;
         let bookmark_title = row.get::<_, Option<String>>("btitle")?;
-        let title = bookmark_title.or_else(|| history_title).unwrap_or_default();
+        let title = bookmark_title.or(history_title).unwrap_or_default();
 
         let tags = row.get::<_, Option<String>>("tags")?;
         if let Some(tags) = tags {
@@ -615,7 +615,8 @@ mod tests {
     use crate::api::places_api::test::new_mem_connection;
     use crate::observation::VisitObservation;
     use crate::storage::history::apply_observation;
-    use crate::types::{Timestamp, VisitTransition};
+    use crate::types::VisitTransition;
+    use types::Timestamp;
 
     #[test]
     fn split() {

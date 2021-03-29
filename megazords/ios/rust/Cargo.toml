@@ -9,9 +9,12 @@ license = "MPL-2.0"
 crate-type = ["staticlib"]
 
 [dependencies]
-fxaclient_ffi = { path = "../../../components/fxa-client/ffi" }
+fxa-client = { path = "../../../components/fxa-client" }
 logins_ffi = { path = "../../../components/logins/ffi" }
 places-ffi = { path = "../../../components/places/ffi" }
 rc_log_ffi = { path = "../../../components/rc_log" }
 viaduct = { path = "../../../components/viaduct" }
 viaduct-reqwest = { path = "../../../components/support/viaduct-reqwest" }
+glean-ffi = { path = "../../../components/external/glean/glean-core/ffi" }
+crashtest = { path = "../../../components/crashtest" }
+nimbus-sdk = { path = "../../../components/nimbus" }

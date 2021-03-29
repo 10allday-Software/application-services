@@ -2,13 +2,13 @@
 
 set -euvx
 
-SQLCIPHER_VERSION="4.3.0"
-SQLCIPHER_SHA256="fccb37e440ada898902b294d02cde7af9e8706b185d77ed9f6f4d5b18b4c305f"
+SQLCIPHER_VERSION="4.4.0"
+SQLCIPHER_SHA256="0924b2ae1079717954498bda78a30de20ce2a6083076b16214a711567821d148"
 
-NSS="nss-3.54"
-NSS_ARCHIVE="nss-3.54-with-nspr-4.26.tar.gz"
-NSS_URL="https://ftp.mozilla.org/pub/security/nss/releases/NSS_3_54_RTM/src/${NSS_ARCHIVE}"
-NSS_SHA256="e0e81f0ff264d810f130d3cd9334722f7f883c752430483131d1ca5ac62d3f70"
+NSS="nss-3.59"
+NSS_ARCHIVE="nss-3.59-with-nspr-4.29.tar.gz"
+NSS_URL="https://ftp.mozilla.org/pub/security/nss/releases/NSS_3_59_RTM/src/${NSS_ARCHIVE}"
+NSS_SHA256="2e2c09c17b1c9f43a2f0a5d83a30a712bff3016d2b7cf5a3dd904847292607ae"
 
 # End of configuration.
 

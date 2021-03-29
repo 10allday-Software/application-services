@@ -52,7 +52,7 @@ impl<'a> sync15_traits::BridgedEngine for BridgedEngine<'a> {
     }
 
     fn sync_id(&self) -> Result<Option<String>> {
-        Ok(get_meta(self.db, SYNC_ID_META_KEY)?)
+        get_meta(self.db, SYNC_ID_META_KEY)
     }
 
     fn reset_sync_id(&self) -> Result<String> {
@@ -176,7 +176,7 @@ mod tests {
         )?;
         engine.db.execute(
             "INSERT INTO storage_sync_mirror (guid, ext_id, data)
-                 VALUES ('guid', 'ext-a', null)",
+                 VALUES ('guid', 'ext-a', '3')",
             rusqlite::NO_PARAMS,
         )?;
         engine.set_last_sync(1)?;

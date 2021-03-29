@@ -280,6 +280,8 @@ pub struct Login {
     pub times_used: i64,
 }
 
+// Quiet clippy, since this function is passed to deserialiaze_with...
+#[allow(clippy::unnecessary_wraps)]
 fn deserialize_timestamp<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
 where
     D: serde::de::Deserializer<'de>,
@@ -501,7 +503,7 @@ impl Login {
                             .get_or_insert_with(|| self.clone())
                             .form_submit_url = Some("".into());
                     }
-                } else if href != "" && href != "javascript:" {
+                } else if !href.is_empty() && href != "javascript:" {
                     if let Some(fixed) = Login::validate_and_fixup_origin(&href)? {
                         get_fixed_or_throw!(InvalidLogin::IllegalFieldValue {
                             field_info: "formActionOrigin is not normalized".into()

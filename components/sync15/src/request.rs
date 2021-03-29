@@ -253,10 +253,7 @@ where
 
     #[inline]
     fn in_batch(&self) -> bool {
-        match &self.batch {
-            BatchState::Unsupported | BatchState::NoBatch => false,
-            _ => true,
-        }
+        !matches!(&self.batch, BatchState::Unsupported | BatchState::NoBatch)
     }
 
     pub fn enqueue(&mut self, record: &EncryptedBso) -> Result<bool> {
@@ -424,7 +421,7 @@ where
         let batch_id = record
             .batch
             .as_ref()
-            .ok_or_else(|| {
+            .ok_or({
                 ErrorKind::ServerBatchProblem("Invalid server response: 202 without a batch ID")
             })?
             .clone();
@@ -608,7 +605,7 @@ mod test {
             batch: Option<String>,
             commit: bool,
             queue: &PostQueue<T, O>,
-        ) -> Result<PostResponse> {
+        ) -> Sync15ClientResponse<UploadResult> {
             let mut post = PostedData {
                 body: String::from_utf8(body.into()).expect("Posted invalid utf8..."),
                 batch: batch.clone(),
@@ -692,12 +689,11 @@ mod test {
                 self.batches.push(batch);
             }
 
-            Ok(response)
+            response
         }
 
-        fn do_handle_response(&mut self, _: PostResponse, mid_batch: bool) -> Result<()> {
+        fn do_handle_response(&mut self, _: PostResponse, mid_batch: bool) {
             assert_eq!(mid_batch, self.cur_batch.is_some());
-            Ok(())
         }
     }
     impl BatchPoster for TestPosterRef {
@@ -709,13 +705,14 @@ mod test {
             commit: bool,
             queue: &PostQueue<T, O>,
         ) -> Result<PostResponse> {
-            self.borrow_mut().do_post(&body, xius, batch, commit, queue)
+            Ok(self.borrow_mut().do_post(&body, xius, batch, commit, queue))
         }
     }
 
     impl PostResponseHandler for TestPosterRef {
         fn handle_response(&mut self, r: PostResponse, mid_batch: bool) -> Result<()> {
-            self.borrow_mut().do_handle_response(r, mid_batch)
+            self.borrow_mut().do_handle_response(r, mid_batch);
+            Ok(())
         }
     }
 

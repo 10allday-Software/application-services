@@ -271,8 +271,8 @@ pub extern "C" fn places_get_visited_urls_in_range(
         let visited = storage::history::get_visited_urls(
             conn,
             // Probably should allow into()...
-            places::Timestamp(start.max(0) as u64),
-            places::Timestamp(end.max(0) as u64),
+            types::Timestamp(start.max(0) as u64),
+            types::Timestamp(end.max(0) as u64),
             include_remote != 0,
         )?;
         Ok(serde_json::to_string(&visited)?)
@@ -309,8 +309,8 @@ pub extern "C" fn places_delete_visits_between(
     CONNECTIONS.call_with_result(error, handle, |conn| -> places::Result<_> {
         storage::history::delete_visits_between(
             conn,
-            places::Timestamp(start.max(0) as u64),
-            places::Timestamp(end.max(0) as u64),
+            types::Timestamp(start.max(0) as u64),
+            types::Timestamp(end.max(0) as u64),
         )?;
         Ok(())
     })
@@ -330,7 +330,7 @@ pub extern "C" fn places_delete_visit(
                 storage::history::delete_place_visit_at_time(
                     conn,
                     &url,
-                    places::Timestamp(timestamp.max(0) as u64),
+                    types::Timestamp(timestamp.max(0) as u64),
                 )?;
             }
             Err(e) => {
@@ -338,7 +338,7 @@ pub extern "C" fn places_delete_visit(
                 storage::history::delete_place_visit_at_time_by_href(
                     conn,
                     url.as_str(),
-                    places::Timestamp(timestamp.max(0) as u64),
+                    types::Timestamp(timestamp.max(0) as u64),
                 )?;
             }
         };
@@ -378,13 +378,12 @@ pub extern "C" fn places_delete_everything(handle: u64, error: &mut ExternError)
 pub extern "C" fn places_get_top_frecent_site_infos(
     handle: u64,
     num_items: i32,
+    frecency_threshold: i64,
     error: &mut ExternError,
 ) -> ByteBuffer {
     log::debug!("places_get_top_frecent_site_infos");
     CONNECTIONS.call_with_result(error, handle, |conn| -> places::Result<_> {
-        Ok(storage::history::get_top_frecent_site_infos(
-            conn, num_items,
-        )?)
+        storage::history::get_top_frecent_site_infos(conn, num_items, frecency_threshold)
     })
 }
 
@@ -398,13 +397,13 @@ pub extern "C" fn places_get_visit_infos(
 ) -> ByteBuffer {
     log::debug!("places_get_visit_infos");
     CONNECTIONS.call_with_result(error, handle, |conn| -> places::Result<_> {
-        Ok(storage::history::get_visit_infos(
+        storage::history::get_visit_infos(
             conn,
-            places::Timestamp(start_date.max(0) as u64),
-            places::Timestamp(end_date.max(0) as u64),
+            types::Timestamp(start_date.max(0) as u64),
+            types::Timestamp(end_date.max(0) as u64),
             VisitTransitionSet::from_u16(exclude_types as u16)
                 .expect("Bug: Invalid VisitTransitionSet"),
-        )?)
+        )
     })
 }
 
@@ -564,7 +563,7 @@ pub extern "C" fn bookmarks_get_tree(
     log::debug!("bookmarks_get_tree");
     CONNECTIONS.call_with_result(error, handle, |conn| -> places::Result<_> {
         let root_id = SyncGuid::from(guid.as_str());
-        Ok(bookmarks::public_node::fetch_public_tree(conn, &root_id)?)
+        bookmarks::public_node::fetch_public_tree(conn, &root_id)
     })
 }
 
@@ -587,11 +586,7 @@ pub extern "C" fn bookmarks_get_by_guid(
     log::debug!("bookmarks_get_by_guid");
     CONNECTIONS.call_with_result(error, handle, |conn| -> places::Result<_> {
         let guid = SyncGuid::from(guid.as_str());
-        Ok(bookmarks::public_node::fetch_bookmark(
-            conn,
-            &guid,
-            get_direct_children != 0,
-        )?)
+        bookmarks::public_node::fetch_bookmark(conn, &guid, get_direct_children != 0)
     })
 }
 

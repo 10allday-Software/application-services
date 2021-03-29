@@ -5,8 +5,11 @@
 #![allow(unknown_lints)]
 #![warn(rust_2018_idioms)]
 
-pub use fxaclient_ffi;
+pub use crashtest;
+pub use fxa_client;
+pub use glean_ffi;
 pub use logins_ffi;
+pub use nimbus;
 pub use places_ffi;
 pub use rc_log_ffi;
 pub use viaduct_reqwest;

@@ -33,7 +33,8 @@ fi
 
 ./automation/all_rust_tests.sh
 
-cargo run -p sync-test
+# Disabled for intermittent failures; see SDK-233 and #3909 for details.
+#cargo run -p sync-test
 
 ./gradlew test
 
@@ -47,11 +48,11 @@ fi
 # Formatters. These should always succeed, but might leave
 # uncomitted changes in your working directory.
 
-cargo fmt
+cargo fmt --all
 
 if [[ "$(uname -s)" == "Darwin" ]]
 then
-    swiftformat megazords components/*/ios --lint --swiftversion 4 
+    swiftformat megazords components/*/ios --exclude '**/Generated' --lint --swiftversion 4
 else
     echo "WARNING: skipping swiftformat on non-Darwin host"
 fi

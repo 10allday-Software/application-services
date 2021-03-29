@@ -24,6 +24,9 @@ use crate::error::{
 };
 use crate::storage::Store;
 
+mod rate_limiter;
+pub use rate_limiter::PersistedRateLimiter;
+
 #[derive(Debug)]
 pub struct RegisterResponse {
     /// The UAID associated with the request
@@ -114,8 +117,8 @@ pub fn connect(
         .into());
     };
     let connection = ConnectHttp {
-        uaid,
         options,
+        uaid,
         auth,
     };
 
@@ -402,7 +405,7 @@ impl Connection for ConnectHttp {
         if &self.options.sender_id == "test" {
             return Ok(false);
         }
-        let local_channels: HashSet<String> = HashSet::from_iter(channels.iter().cloned());
+        let local_channels: HashSet<String> = channels.iter().cloned().collect();
         let remote_channels: HashSet<String> = HashSet::from_iter(self.channel_list()?);
 
         // verify both lists match. Either side could have lost it's mind.
@@ -465,7 +468,7 @@ mod test {
             .with_body(body)
             .create();
             let mut conn = connect(config.clone(), None, None).unwrap();
-            let channel_id = hex::encode(crate::crypto::get_bytes(16).unwrap());
+            let channel_id = hex::encode(crate::crypto::get_random_bytes(16).unwrap());
             let response = conn.subscribe(&channel_id, None).unwrap();
             ap_mock.assert();
             assert_eq!(response.uaid, DUMMY_UAID);
@@ -491,7 +494,7 @@ mod test {
             .with_body(body)
             .create();
             let mut conn = connect(config.clone(), None, None).unwrap();
-            let channel_id = hex::encode(crate::crypto::get_bytes(16).unwrap());
+            let channel_id = hex::encode(crate::crypto::get_random_bytes(16).unwrap());
             let response = conn.subscribe(&channel_id, None).unwrap();
             ap_ns_mock.assert();
             assert_eq!(response.uaid, DUMMY_UAID);

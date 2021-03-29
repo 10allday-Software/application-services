@@ -3,6 +3,12 @@ version: 2.1
 # ⚠️ If you add, rename or delete a job here, please also update .mergify.yml! ⚠️
 
 commands:
+  full-checkout:
+    steps:
+      - checkout
+      - run:
+          name: "Pull git submodules"
+          command: git submodule update --init
   setup-sccache:
     steps:
       - run:
@@ -30,6 +36,15 @@ commands:
       - run: |
           sccache --version
           sccache --zero-stats
+  install-grcov:
+    steps:
+      - run:
+          name: Install grcov
+          command: |
+            cargo install grcov
+      # Run in a different shell to source $BASH_ENV
+      - run: |
+          grcov --version
   install-mdbook:
     steps:
       - run:
@@ -46,8 +61,8 @@ commands:
           name: Install Rust
           command: |
             RUSTUP_PLATFORM=x86_64-apple-darwin
-            RUSTUP_VERSION=1.18.3
-            RUSTUP_SHA256=16734a9a2d87a3054bd4eea962642687e50a34b6e73e17df6f3361c2c534dc30
+            RUSTUP_VERSION=1.23.1
+            RUSTUP_SHA256=39101feb178a7e3e4443b09b36338e794a9e00385e5f44a2f7789aefb91354a9
             curl -sfSL --retry 5 --retry-delay 10 -O "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_PLATFORM}/rustup-init"
             echo "${RUSTUP_SHA256} *rustup-init" | shasum -a 256 -c -
             chmod +x rustup-init
@@ -55,17 +70,11 @@ commands:
             rm rustup-init
             echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> $BASH_ENV
   setup-rust-toolchain:
-    parameters:
-      rust-version:
-        type: string
-        default: "stable"
     steps:
       - run:
           name: Set up Rust toolchain
           command: |
             rustup update
-            rustup install <<parameters.rust-version>>
-            rustup default <<parameters.rust-version>>
             rustc --version
   build-libs:
     parameters:
@@ -118,22 +127,17 @@ commands:
           key: carthage-dir-cache-{{ arch }}-{{ checksum "xcode_version" }}-{{ checksum "Cartfile.resolved" }}
       - run:
           name: Bootstrap Carthage dependencies
-          command: carthage bootstrap --platform iOS --cache-builds
+          command: XCODE_XCCONFIG_FILE=`pwd`/xcconfig/xcode-12-fix-carthage-lipo.xcconfig carthage bootstrap --platform iOS --cache-builds
       - save_cache:
           name: Save Carthage/ cache
           key: carthage-dir-cache-{{ arch }}-{{ checksum "xcode_version" }}-{{ checksum "Cartfile.resolved" }}
           paths:
             - Carthage
   test-setup:
-    parameters:
-      rust-version:
-        type: string
-        default: "stable"
     steps:
-      - checkout
+      - full-checkout
       - build-desktop-libs
-      - setup-rust-toolchain:
-          rust-version: <<parameters.rust-version>>
+      - setup-rust-toolchain
       - setup-sccache
       # clipboard crate depends on some x11 libs.
       - run: sudo apt-get install libxcb-shape0-dev libxcb-xfixes0-dev
@@ -149,49 +153,33 @@ commands:
     parameters:
       rust-version:
         type: string
-        default: "stable"
+        default: ""
     steps:
-      - test-setup:
-          rust-version: <<parameters.rust-version>>
+      - test-setup
       # Test with 1. only default features on, 2. all features on, 3. no features on.
       # This is not perfect (really we want the cartesian product), but is good enough in practice.
       - run:
           name: Test (default features, no features, and all features)
-          command: bash automation/all_rust_tests.sh --verbose
+          command: RUSTUP_TOOLCHAIN="<<parameters.rust-version>>" automation/all_rust_tests.sh --verbose
   dependency-checks:
     steps:
       - run:
           name: Check for security vulnerabilities in dependencies
           command: |
             cargo install cargo-audit
-            cargo audit
+            # Explanation for ignored issues:
+            #  * RUSTSEC-2021-0019:  Soundness issues in `xcb`, a clipboard library we only use for examples.
+            #                        There is currently no fixed version available.
+            cargo audit --ignore RUSTSEC-2021-0019
       - run:
           name: Check for any unrecorded changes in our dependency trees
           command: |
             pip3 install --require-hashes -r ./tools/requirements.txt
-            rustup install nightly
             cargo metadata --locked > /dev/null
             python3 ./tools/dependency_summary.py --check ./DEPENDENCIES.md
             python3 ./tools/dependency_summary.py --all-ios-targets --package megazord_ios --check megazords/ios/DEPENDENCIES.md
             python3 ./tools/dependency_summary.py --all-android-targets --package megazord --check megazords/full/DEPENDENCIES.md
             python3 ./tools/dependency_summary.py --all-android-targets --package megazord --format pom --check megazords/full/android/dependency-licenses.xml
-            python3 ./tools/dependency_summary.py --all-android-targets --package lockbox --check megazords/lockbox/DEPENDENCIES.md
-            python3 ./tools/dependency_summary.py --all-android-targets --package lockbox --format pom --check megazords/lockbox/android/dependency-licenses.xml
-
-  sync-bugzilla-to-github:
-    steps:
-      - checkout
-      - run:
-          name: Mirror Bugzilla issues into GitHub
-          command: |
-            sudo pip3 install --require-hashes -r ./tools/requirements.txt
-            python3 ./tools/sync_bugzilla_to_github.py
-  sync-tests:
-    steps:
-      - test-setup
-      - run:
-          name: Sync Integration Test Suite
-          command: cargo run -p sync-test -- --oauth-retries 5
   bench-all:
     steps:
       - test-setup
@@ -225,9 +213,9 @@ commands:
 jobs:
   Check Swift formatting:
     macos:
-      xcode: "11.5.0"
+      xcode: "12.3.0"
     steps:
-      - checkout
+      - full-checkout
       - run: brew install swiftlint swiftformat
       - run: swiftlint --strict
       - run: swiftformat megazords components/*/ios --lint --swiftversion 4 --verbose
@@ -236,27 +224,41 @@ jobs:
       - image: circleci/rust:latest
     resource_class: small
     steps:
-      - checkout
+      - full-checkout
       - setup-rust-toolchain
-      - run: rustup component add rustfmt
       - run: rustfmt --version
-      - run: cargo fmt -- --check
+      - run: cargo fmt --all -- --check
   Lint Rust with clippy:
     docker:
       - image: circleci/rust:latest
     steps:
       - test-setup
       - restore-sccache-cache
-      - run: rustup component add clippy
       - run: cargo clippy --version
       - run: bash automation/all_clippy_checks.sh
       - save-sccache-cache
+  Generate code coverage:
+    docker:
+      - image: circleci/rust:latest
+    resource_class: large
+    steps:
+      - test-setup
+      - install-grcov
+      # Test coverage support in Rust has been evolving rapidly, use nightly
+      # in the hope of getting the best support/features on that front.
+      - run: RUSTUP_TOOLCHAIN="nightly" bash ./automation/emit_coverage_info.sh
+      - run:
+          name: Compile coverage
+          command: grcov ./target/debug/ -s . -t lcov --llvm --ignore-not-existing --ignore "target/*" --ignore "/*" -o lcov.info
+      - run:
+          name: Upload to codecov.io
+          command: bash <(curl -s https://codecov.io/bash) -f lcov.info
   Check Protobuf files are up-to-date:
     docker:
       - image: circleci/rust:latest
     resource_class: small
     steps:
-      - checkout
+      - full-checkout
       - run: ./automation/check_protobuf_files_current.py
   Lint Bash scripts:
     docker:
@@ -268,24 +270,19 @@ jobs:
           name: Lint Bash scripts with shellcheck
           command: sh automation/lint_bash_scripts.sh
   Check Rust dependencies:
-    docker:
-      - image: circleci/rust:latest
+    # This check has to be done on a mac, to be able to detect iOS-specific dependencies.
+    macos:
+      xcode: "12.3.0"
     steps:
-      - run: sudo apt-get install python3-pip
+      - install-rust
       - setup-rust-toolchain
-      - checkout
+      - full-checkout
       - dependency-checks
-  Mirror Bugzilla issues into GitHub:
-    docker:
-      - image: circleci/python:latest
-    resource_class: small
-    steps:
-      - sync-bugzilla-to-github
   Rust tests:
     docker:
       - image: circleci/rust:latest
     # We have to use a machine with more RAM for tests so we don't run out of memory.
-    resource_class: xlarge
+    resource_class: large
     steps:
       - restore-sccache-cache
       - rust-tests
@@ -294,18 +291,11 @@ jobs:
   Rust tests - beta:
     docker:
       - image: circleci/rust:latest
-    resource_class: xlarge
+    resource_class: large
     steps:
       - restore-sccache-cache
       - rust-tests:
           rust-version: "beta"
-      - save-sccache-cache
-  Sync integration tests:
-    docker:
-      - image: circleci/rust:latest-browsers
-    steps:
-      - restore-sccache-cache
-      - sync-tests
       - save-sccache-cache
   Rust benchmarks:
     docker:
@@ -317,14 +307,14 @@ jobs:
       - save-sccache-cache
   iOS build and test:
     macos:
-      xcode: "11.5.0"
+      xcode: "12.3.0"
     steps:
       # We do not use the ssccache cache helper commands as
       # the macOS cache is in a different folder.
       - restore_cache:
           name: Restore sccache cache
           key: sccache-cache-macos-{{ arch }}
-      - checkout
+      - full-checkout
       - install-rust
       - setup-rust-toolchain
       - run:
@@ -339,7 +329,6 @@ jobs:
       - run:
           name: Set up the build environment
           command: |
-            rustup target add aarch64-apple-ios x86_64-apple-ios
             brew install swift-protobuf
       - carthage-bootstrap
       - run:
@@ -402,9 +391,9 @@ jobs:
             - MozillaAppServices.framework.zip
   Carthage release:
     macos:
-      xcode: "11.5.0"
+      xcode: "12.3.0"
     steps:
-      - checkout
+      - full-checkout
       - attach_workspace:
           at: .
       - run:
@@ -416,33 +405,6 @@ jobs:
             echo "${GHR_SHA256} *${GHR}.zip" | shasum -a 256 -c -
             unzip "${GHR}.zip"
             ./${GHR}/ghr -replace "${CIRCLE_TAG}" MozillaAppServices.framework.zip
-  Deploy website:
-    docker:
-      - image: circleci/node:latest
-    resource_class: small
-    steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "f1:3e:05:3a:66:69:60:4f:1f:9f:8f:af:6e:1f:0f:53"
-      - install-mdbook
-      - checkout
-      - run:
-          name: Build and publish books and product portal
-          command: |
-            pushd docs/sync-storage-handbook
-            mdbook build
-            popd
-            pushd docs/synconomicon
-            mdbook build
-            popd
-            pushd website
-            npm install
-            cp -R ../docs/sync-storage-handbook/book static/sync-storage-handbook
-            cp -R ../docs/synconomicon/book static/synconomicon
-            git config --global user.name "Application Services"
-            git config --global user.email "application-services@mozilla.com"
-            USE_SSH=true npm run publish-gh-pages
-            popd
 workflows:
   version: 2
   swiftlint:
@@ -463,12 +425,6 @@ workflows:
   bash-lint:
     jobs:
       - Lint Bash scripts
-  deploy-website:
-    jobs:
-      - Deploy website:
-          filters:
-            branches:
-              only: main
   check-dependencies-periodically:
     jobs:
       - Check Rust dependencies
@@ -489,21 +445,13 @@ workflows:
             branches:
               only:
                 - main
-  mirror-bugzilla-to-github-periodically:
-    jobs:
-      - Mirror Bugzilla issues into GitHub
-    triggers:
-      - schedule:
-          cron: "0,30 * * * *"
-          filters:
-            branches:
-              only:
-                - main
   run-tests:
     jobs:
       - Rust tests
       - Rust benchmarks
-      - Sync integration tests
+  coverage:
+    jobs:
+      - Generate code coverage
   carthage-framework:
     jobs:
       - iOS build and test:

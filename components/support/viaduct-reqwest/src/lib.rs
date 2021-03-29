@@ -35,6 +35,7 @@ lazy_static::lazy_static! {
     };
 }
 
+#[allow(clippy::unnecessary_wraps)] // not worth the time to untangle
 fn into_reqwest(request: viaduct::Request) -> Result<reqwest::blocking::Request, viaduct::Error> {
     let method = match request.method {
         viaduct::Method::Get => reqwest::Method::GET,
@@ -91,10 +92,10 @@ impl Backend for ReqwestBackend {
         }
         Ok(viaduct::Response {
             request_method,
-            body,
             url,
             status,
             headers,
+            body,
         })
     }
 }

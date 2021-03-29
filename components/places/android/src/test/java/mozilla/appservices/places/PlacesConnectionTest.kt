@@ -176,6 +176,13 @@ class PlacesConnectionTest {
 
     @Test
     fun testGetTopFrecentSiteInfos() {
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.DOWNLOAD))
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.EMBED))
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.REDIRECT_PERMANENT))
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.REDIRECT_TEMPORARY))
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.FRAMED_LINK))
+        db.noteObservation(VisitObservation(url = "https://www.example.com/1", visitType = VisitType.RELOAD))
+
         val toAdd = listOf(
                 "https://www.example.com/123",
                 "https://www.example.com/123",
@@ -191,23 +198,41 @@ class PlacesConnectionTest {
             db.noteObservation(VisitObservation(url = url, visitType = VisitType.LINK))
         }
 
-        var infos = db.getTopFrecentSiteInfos(0)
+        var infos = db.getTopFrecentSiteInfos(numItems = 0, frecencyThreshold = FrecencyThresholdOption.NONE)
+
         assertEquals(0, infos.size)
 
-        infos = db.getTopFrecentSiteInfos(3)
+        infos = db.getTopFrecentSiteInfos(numItems = 0, frecencyThreshold = FrecencyThresholdOption.SKIP_ONE_TIME_PAGES)
+
+        assertEquals(0, infos.size)
+
+        infos = db.getTopFrecentSiteInfos(numItems = 3, frecencyThreshold = FrecencyThresholdOption.NONE)
 
         assertEquals(3, infos.size)
         assertEquals("https://www.mozilla.com/foo/bar/baz", infos[0].url)
         assertEquals("https://www.example.com/123", infos[1].url)
         assertEquals("https://news.ycombinator.com/", infos[2].url)
 
-        infos = db.getTopFrecentSiteInfos(5)
+        infos = db.getTopFrecentSiteInfos(numItems = 3, frecencyThreshold = FrecencyThresholdOption.SKIP_ONE_TIME_PAGES)
+
+        assertEquals(2, infos.size)
+        assertEquals("https://www.mozilla.com/foo/bar/baz", infos[0].url)
+        assertEquals("https://www.example.com/123", infos[1].url)
+
+        infos = db.getTopFrecentSiteInfos(numItems = 5, frecencyThreshold = FrecencyThresholdOption.NONE)
+
         assertEquals(5, infos.size)
         assertEquals("https://www.mozilla.com/foo/bar/baz", infos[0].url)
         assertEquals("https://www.example.com/123", infos[1].url)
         assertEquals("https://news.ycombinator.com/", infos[2].url)
         assertEquals("https://mozilla.com/a1/b2/c3", infos[3].url)
         assertEquals("https://www.example.com/12345", infos[4].url)
+
+        infos = db.getTopFrecentSiteInfos(numItems = 5, frecencyThreshold = FrecencyThresholdOption.SKIP_ONE_TIME_PAGES)
+
+        assertEquals(2, infos.size)
+        assertEquals("https://www.mozilla.com/foo/bar/baz", infos[0].url)
+        assertEquals("https://www.example.com/123", infos[1].url)
     }
 
     // Basically equivalent to test_get_visited in rust, but exercises the FFI,
@@ -308,7 +333,6 @@ class PlacesConnectionTest {
 
     @Test
     fun testHistoryMetricsGathering() {
-        assert(!PlacesManagerMetrics.writeQueryTime.testHasValue())
         assert(!PlacesManagerMetrics.writeQueryCount.testHasValue())
         assert(!PlacesManagerMetrics.writeQueryErrorCount["url_parse_failed"].testHasValue())
 
@@ -316,7 +340,6 @@ class PlacesConnectionTest {
         db.noteObservation(VisitObservation(url = "https://www.example.com/2b", visitType = VisitType.LINK, at = 150000))
         db.noteObservation(VisitObservation(url = "https://www.example.com/3", visitType = VisitType.LINK, at = 200000))
 
-        assert(PlacesManagerMetrics.writeQueryTime.testHasValue())
         assertEquals(3, PlacesManagerMetrics.writeQueryCount.testGetValue())
         assert(!PlacesManagerMetrics.writeQueryErrorCount["__other__"].testHasValue())
 
@@ -327,18 +350,15 @@ class PlacesConnectionTest {
             // nothing to do here
         }
 
-        assert(PlacesManagerMetrics.writeQueryTime.testHasValue())
         assertEquals(4, PlacesManagerMetrics.writeQueryCount.testGetValue())
         assert(PlacesManagerMetrics.writeQueryErrorCount["url_parse_failed"].testHasValue())
         assertEquals(1, PlacesManagerMetrics.writeQueryErrorCount["url_parse_failed"].testGetValue())
 
-        assert(!PlacesManagerMetrics.readQueryTime.testHasValue())
         assert(!PlacesManagerMetrics.readQueryCount.testHasValue())
         assert(!PlacesManagerMetrics.readQueryErrorCount["__other__"].testHasValue())
 
         db.getVisitInfos(125000, 225000)
 
-        assert(PlacesManagerMetrics.readQueryTime.testHasValue())
         assertEquals(1, PlacesManagerMetrics.readQueryCount.testGetValue())
         assert(!PlacesManagerMetrics.readQueryErrorCount["__other__"].testHasValue())
 
@@ -347,14 +367,12 @@ class PlacesConnectionTest {
         val infos = db.getVisitInfos(130000, 200000)
         assertEquals(2, infos.size)
 
-        assert(PlacesManagerMetrics.writeQueryTime.testHasValue())
         assertEquals(5, PlacesManagerMetrics.writeQueryCount.testGetValue())
         assert(!PlacesManagerMetrics.writeQueryErrorCount["_other_"].testHasValue())
     }
 
     @Test
     fun testBookmarksMetricsGathering() {
-        assert(!PlacesManagerMetrics.writeQueryTime.testHasValue())
         assert(!PlacesManagerMetrics.writeQueryCount.testHasValue())
         assert(!PlacesManagerMetrics.writeQueryErrorCount["unknown_bookmark_item"].testHasValue())
 
@@ -363,7 +381,6 @@ class PlacesConnectionTest {
                 url = "https://www.example.com/",
                 title = "example")
 
-        assert(PlacesManagerMetrics.writeQueryTime.testHasValue())
         assertEquals(1, PlacesManagerMetrics.writeQueryCount.testGetValue())
         assert(!PlacesManagerMetrics.writeQueryErrorCount["unknown_bookmark_item"].testHasValue())
 
@@ -377,22 +394,17 @@ class PlacesConnectionTest {
             // nothing to do here
         }
 
-        assert(PlacesManagerMetrics.writeQueryTime.testHasValue())
         assertEquals(2, PlacesManagerMetrics.writeQueryCount.testGetValue())
         assert(PlacesManagerMetrics.writeQueryErrorCount["url_parse_failed"].testHasValue())
         assertEquals(1, PlacesManagerMetrics.writeQueryErrorCount["url_parse_failed"].testGetValue())
 
-        assert(!PlacesManagerMetrics.readQueryTime.testHasValue())
         assert(!PlacesManagerMetrics.readQueryCount.testHasValue())
         assert(!PlacesManagerMetrics.readQueryErrorCount["__other__"].testHasValue())
 
         db.getBookmark(itemGUID)
 
-        assert(PlacesManagerMetrics.readQueryTime.testHasValue())
         assertEquals(1, PlacesManagerMetrics.readQueryCount.testGetValue())
         assert(!PlacesManagerMetrics.readQueryErrorCount["__other__"].testHasValue())
-
-        assert(!PlacesManagerMetrics.scanQueryTime.testHasValue())
 
         val folderGUID = db.createFolder(
                 parentGUID = BookmarkRoot.Unfiled.id,
@@ -414,7 +426,5 @@ class PlacesConnectionTest {
                 title = "example4")
 
         db.getBookmarksTree(folderGUID, false)
-
-        assert(PlacesManagerMetrics.scanQueryTime.testHasValue())
     }
 }

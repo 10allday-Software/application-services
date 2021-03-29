@@ -27,7 +27,6 @@ import org.mozilla.appservices.places.GleanMetrics.PlacesManager as PlacesManage
  * on version updates.
  */
 import mozilla.components.service.glean.private.CounterMetricType
-import mozilla.components.service.glean.private.TimingDistributionMetricType
 import mozilla.components.service.glean.private.LabeledMetricType
 
 /**
@@ -281,9 +280,9 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
         }
     }
 
-    override fun getTopFrecentSiteInfos(numItems: Int): List<TopFrecentSiteInfo> {
+    override fun getTopFrecentSiteInfos(numItems: Int, frecencyThreshold: FrecencyThresholdOption): List<TopFrecentSiteInfo> {
         val infoBuffer = rustCall { error ->
-            LibPlacesFFI.INSTANCE.places_get_top_frecent_site_infos(this.handle.get(), numItems, error)
+            LibPlacesFFI.INSTANCE.places_get_top_frecent_site_infos(this.handle.get(), numItems, frecencyThreshold.value, error)
         }
         try {
             val infos = MsgTypes.TopFrecentSiteInfos.parseFrom(infoBuffer.asCodedInputStream()!!)
@@ -303,14 +302,12 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
         readQueryCounters.measure {
             rustCall { error ->
                 val bufferPtr = Native.getDirectBufferPointer(byteBuffer)
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_get_visited(
-                            this.handle.get(),
-                            urlStrings, urls.size,
-                            bufferPtr, urls.size,
-                            error
-                    )
-                }
+                LibPlacesFFI.INSTANCE.places_get_visited(
+                        this.handle.get(),
+                        urlStrings, urls.size,
+                        bufferPtr, urls.size,
+                        error
+                )
             }
         }
         val result = ArrayList<Boolean>(urls.size)
@@ -342,10 +339,8 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
     override fun getVisitInfos(start: Long, end: Long, excludeTypes: List<VisitType>): List<VisitInfo> {
         readQueryCounters.measure {
             val infoBuffer = rustCall { error ->
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_get_visit_infos(
-                            this.handle.get(), start, end, visitTransitionSet(excludeTypes), error)
-                }
+                LibPlacesFFI.INSTANCE.places_get_visit_infos(
+                        this.handle.get(), start, end, visitTransitionSet(excludeTypes), error)
             }
             try {
                 val infos = MsgTypes.HistoryVisitInfos.parseFrom(infoBuffer.asCodedInputStream()!!)
@@ -397,9 +392,7 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
     override fun getBookmark(guid: String): BookmarkTreeNode? {
         readQueryCounters.measure {
             val rustBuf = rustCall { err ->
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_get_by_guid(this.handle.get(), guid, 0.toByte(), err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_get_by_guid(this.handle.get(), guid, 0.toByte(), err)
             }
             try {
                 return rustBuf.asCodedInputStream()?.let { stream ->
@@ -413,12 +406,10 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
 
     override fun getBookmarksTree(rootGUID: String, recursive: Boolean): BookmarkTreeNode? {
         val rustBuf = rustCall { err ->
-            PlacesManagerMetrics.scanQueryTime.measure {
-                if (recursive) {
-                    LibPlacesFFI.INSTANCE.bookmarks_get_tree(this.handle.get(), rootGUID, err)
-                } else {
-                    LibPlacesFFI.INSTANCE.bookmarks_get_by_guid(this.handle.get(), rootGUID, 1.toByte(), err)
-                }
+            if (recursive) {
+                LibPlacesFFI.INSTANCE.bookmarks_get_tree(this.handle.get(), rootGUID, err)
+            } else {
+                LibPlacesFFI.INSTANCE.bookmarks_get_by_guid(this.handle.get(), rootGUID, 1.toByte(), err)
             }
         }
         try {
@@ -433,9 +424,7 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
     override fun getBookmarksWithURL(url: String): List<BookmarkItem> {
         readQueryCounters.measure {
             val rustBuf = rustCall { err ->
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_get_all_with_url(this.handle.get(), url, err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_get_all_with_url(this.handle.get(), url, err)
             }
 
             try {
@@ -456,9 +445,7 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
     override fun searchBookmarks(query: String, limit: Int): List<BookmarkItem> {
         readQueryCounters.measure {
             val rustBuf = rustCall { err ->
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_search(this.handle.get(), query, limit, err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_search(this.handle.get(), query, limit, err)
             }
 
             try {
@@ -473,9 +460,7 @@ open class PlacesReaderConnection internal constructor(connHandle: Long) :
     override fun getRecentBookmarks(limit: Int): List<BookmarkItem> {
         readQueryCounters.measure {
             val rustBuf = rustCall { err ->
-                PlacesManagerMetrics.readQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_get_recent(this.handle.get(), limit, err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_get_recent(this.handle.get(), limit, err)
             }
 
             try {
@@ -519,9 +504,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
         val json = data.toJSON().toString()
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_note_observation(this.handle.get(), json, error)
-                }
+                LibPlacesFFI.INSTANCE.places_note_observation(this.handle.get(), json, error)
             }
         }
     }
@@ -529,10 +512,8 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteVisitsFor(url: String) {
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_delete_visits_for(
-                        this.handle.get(), url, error)
-                }
+                LibPlacesFFI.INSTANCE.places_delete_visits_for(
+                    this.handle.get(), url, error)
             }
         }
     }
@@ -540,10 +521,8 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteVisit(url: String, visitTimestamp: Long) {
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_delete_visit(
-                            this.handle.get(), url, visitTimestamp, error)
-                }
+                LibPlacesFFI.INSTANCE.places_delete_visit(
+                        this.handle.get(), url, visitTimestamp, error)
             }
         }
     }
@@ -555,10 +534,8 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteVisitsBetween(startTime: Long, endTime: Long) {
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_delete_visits_between(
-                        this.handle.get(), startTime, endTime, error)
-                }
+                LibPlacesFFI.INSTANCE.places_delete_visits_between(
+                    this.handle.get(), startTime, endTime, error)
             }
         }
     }
@@ -584,9 +561,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteEverything() {
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.places_delete_everything(this.handle.get(), error)
-                }
+                LibPlacesFFI.INSTANCE.places_delete_everything(this.handle.get(), error)
             }
         }
     }
@@ -594,9 +569,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteAllBookmarks() {
         return writeQueryCounters.measure {
             rustCall { error ->
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_delete_everything(this.handle.get(), error)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_delete_everything(this.handle.get(), error)
             }
         }
     }
@@ -604,9 +577,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
     override fun deleteBookmarkNode(guid: String): Boolean {
         return writeQueryCounters.measure {
             rustCall { error ->
-                val existedByte = PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_delete(this.handle.get(), guid, error)
-                }
+                val existedByte = LibPlacesFFI.INSTANCE.bookmarks_delete(this.handle.get(), guid, error)
                 existedByte.toInt() != 0
             }
         }
@@ -621,9 +592,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
         writeQueryCounters.measure {
             return rustCallForString { err ->
                 val ptr = Native.getDirectBufferPointer(nioBuf)
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_insert(this.handle.get(), ptr, len, err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_insert(this.handle.get(), ptr, len, err)
             }
         }
     }
@@ -658,9 +627,7 @@ class PlacesWriterConnection internal constructor(connHandle: Long, api: PlacesA
         return writeQueryCounters.measure {
             rustCall { err ->
                 val ptr = Native.getDirectBufferPointer(nioBuf)
-                PlacesManagerMetrics.writeQueryTime.measure {
-                    LibPlacesFFI.INSTANCE.bookmarks_update(this.handle.get(), ptr, len, err)
-                }
+                LibPlacesFFI.INSTANCE.bookmarks_update(this.handle.get(), ptr, len, err)
             }
         }
     }
@@ -837,12 +804,14 @@ interface ReadableHistoryConnection : InterruptibleConnection {
 
     /**
      * Returns a list of the top frecent site infos limited by the given number of items
-     * sorted by most to least frecent.
+     * and frecency threshold sorted by most to least frecent.
      *
      * @param numItems the number of top frecent sites to return in the list.
+     * @param frecencyThreshold frecency threshold options for filtering visited sites based on
+     * their frecency score.
      * @return a list of the top frecent site infos sorted by most to least frecent.
      */
-    fun getTopFrecentSiteInfos(numItems: Int): List<TopFrecentSiteInfo>
+    fun getTopFrecentSiteInfos(numItems: Int, frecencyThreshold: FrecencyThresholdOption): List<TopFrecentSiteInfo>
 
     /**
      * Maps a list of page URLs to a list of booleans indicating if each URL was visited.
@@ -1206,6 +1175,18 @@ data class TopFrecentSiteInfo(
 }
 
 /**
+ * Frecency threshold options for fetching top frecent sites. Requests a page that was visited
+ * with a frecency score greater or equal to the [value].
+ */
+enum class FrecencyThresholdOption(val value: Long) {
+    /** Returns all visited pages. */
+    NONE(0),
+
+    /** Skip visited pages that were only visited once. */
+    SKIP_ONE_TIME_PAGES(101)
+}
+
+/**
  * Information about a history visit. Returned by `PlacesAPI.getVisitInfos`.
  */
 data class VisitInfo(
@@ -1270,22 +1251,6 @@ data class VisitInfosWithBound(
                 offset = msg.offset
             )
         }
-    }
-}
-
-/**
- * A helper extension method for conveniently measuring execution time of a closure.
- *
- * N.B. since we're measuring calls to Rust code here, the provided callback may be doing
- * unsafe things. It's very imporant that we always call the function exactly once here
- * and don't try to do anything tricky like stashing it for later or calling it multiple times.
- */
-inline fun <U> TimingDistributionMetricType.measure(funcToMeasure: () -> U): U {
-    val timerId = this.start()
-    try {
-        return funcToMeasure()
-    } finally {
-        this.stopAndAccumulate(timerId)
     }
 }
 

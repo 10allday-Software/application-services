@@ -7,10 +7,10 @@ use crate::{
     db::PlacesDb,
     error::*,
     storage::RowId,
-    types::Timestamp,
 };
 use rusqlite::Row;
 use sync_guid::Guid as SyncGuid;
+use types::Timestamp;
 
 use sql_support::{self, ConnExt};
 use sync15::ServerTimestamp;
@@ -148,7 +148,7 @@ impl SyncedBookmarkItem {
     impl_builder_opt_string!(feed_url);
     impl_builder_opt_string!(site_url);
 
-    pub fn tags<'a>(&'a mut self, mut tags: Vec<String>) -> &'a mut SyncedBookmarkItem {
+    pub fn tags(&mut self, mut tags: Vec<String>) -> &mut SyncedBookmarkItem {
         tags.sort();
         self.tags = SyncedBookmarkValue::Specified(tags);
         self
